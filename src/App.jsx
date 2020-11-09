@@ -10,40 +10,89 @@ import {
 import { listNotes } from "./graphql/queries";
 import useFocus from "./common/useFocus";
 import "./App.scss";
-import { useDidMount } from "./common/useDidMount";
 
-function App() {
-  const didMount = useDidMount();
+const App = () => {
   const [notes, setNotes] = useState([]);
   const [note, setNote] = useState("");
   const [idToBeEdited, setIdToBeEdited] = useState(null);
   const [error, setError] = useState(false);
   const [inputRef, setInputFocus] = useFocus();
-  const [subscriptions, setSubscriptions] = useState([]);
 
   useEffect(() => {
     loadNotes();
+    const onCreateListener = onCreateSubscription();
+    const onUpdateListener = onUpdateSubscription();
+    const onDeleteListener = onDeleteSubscription();
+    return () => {
+      onCreateListener.unsubscribe();
+      onUpdateListener.unsubscribe();
+      onDeleteListener.unsubscribe();
+    };
   }, []);
+
+  const onCreateSubscription = () => {
+    return API.graphql(graphqlOperation(onCreateNote)).subscribe({
+      next: (noteData) => {
+        saveNotes(noteData.value.data.onCreateNote);
+      },
+    });
+  };
+
+  const onUpdateSubscription = () => {
+    return API.graphql(graphqlOperation(onUpdateNote)).subscribe({
+      next: (noteData) => {
+        updateNotes(noteData.value.data.onUpdateNote);
+      },
+    });
+  };
+
+  const onDeleteSubscription = () => {
+    return API.graphql(graphqlOperation(onDeleteNote)).subscribe({
+      next: (noteData) => {
+        deleteNotes(noteData.value.data.onDeleteNote);
+      },
+    });
+  };
 
   const loadNotes = async () => {
     const result = await API.graphql(graphqlOperation(listNotes));
     setNotes(result.data.listNotes.items);
   };
 
-  const handleDelete = async (id) => {
-    const input = { id };
-    const result = await API.graphql(graphqlOperation(deleteNote, { input }));
-    const updatedNotes = notes.filter(
-      (item) => item.id !== result.data.deleteNote.id
-    );
-    saveAndClear(updatedNotes);
-    setError(false);
-  };
-
-  const saveAndClear = (noteToBeUpdated) => {
-    setNotes(noteToBeUpdated);
+  const saveNotes = (note) => {
+    // Using prevState allow us to get the last reliable previous state
+    setNotes((prevNotes) => {
+      const updatedNotes = [note, ...prevNotes];
+      return updatedNotes;
+    });
     setNote("");
     setInputFocus();
+  };
+
+  const updateNotes = (note) => {
+    setNotes((prevNotes) => {
+      const updatedNotes = prevNotes.map((item) => {
+        if (item.id === note.id) item.note = note.note;
+        return item;
+      });
+      return updatedNotes;
+    });
+    setNote("");
+    setInputFocus();
+    setIdToBeEdited("");
+  };
+
+  const deleteNotes = (note) => {
+    setNotes((prevNotes) => {
+      const updatedNotes = prevNotes.filter((item) => item.id !== note.id);
+      return updatedNotes;
+    });
+    setNote("");
+    setInputFocus();
+    setError(false);
+  };
+  const handleDelete = async (id) => {
+    await API.graphql(graphqlOperation(deleteNote, { input: { id } }));
   };
 
   const isExistingNote = () => {
@@ -54,28 +103,15 @@ function App() {
   const handleAddNote = async (e) => {
     e.preventDefault();
     if (note && isExistingNote()) {
-      handleUpdateNote();
+      await API.graphql(
+        graphqlOperation(updateNote, { input: { note, id: idToBeEdited } })
+      );
     } else if (note) {
-      const input = { note };
-      const result = await API.graphql(graphqlOperation(createNote, { input }));
-      const newNote = result.data.createNote;
-      const updatedNotes = [newNote, ...notes];
-      saveAndClear(updatedNotes);
+      await API.graphql(graphqlOperation(createNote, { input: { note } }));
     } else {
       setError(true);
       setInputFocus();
     }
-  };
-  const handleUpdateNote = async () => {
-    const input = { note, id: idToBeEdited };
-    const result = await API.graphql(graphqlOperation(updateNote, { input }));
-    const updatedNote = result.data.updateNote;
-    const updatedNotes = notes.map((item) => {
-      if (item.id === updatedNote.id) item.note = updatedNote.note;
-      return item;
-    });
-    saveAndClear(updatedNotes);
-    setIdToBeEdited(null);
   };
 
   const handleChange = (e) => {
@@ -87,6 +123,7 @@ function App() {
     setNote(item.note);
     setIdToBeEdited(item.id);
     setInputFocus();
+    setError(false);
   };
   const showError = () => (
     <span className="error">Please write a note before submitting!</span>
@@ -122,7 +159,7 @@ function App() {
       </div>
     </div>
   );
-}
+};
 
 export default withAuthenticator(App, {
   includeGreetings: true,
