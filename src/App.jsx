@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { API, graphqlOperation } from "aws-amplify";
+import { API, graphqlOperation, Auth } from "aws-amplify";
 import { withAuthenticator } from "aws-amplify-react";
 import { createNote, deleteNote, updateNote } from "./graphql/mutations";
 import {
@@ -17,37 +17,54 @@ const App = () => {
   const [idToBeEdited, setIdToBeEdited] = useState(null);
   const [error, setError] = useState(false);
   const [inputRef, setInputFocus] = useFocus();
+  let onCreateListener, onUpdateListener, onDeleteListener;
 
   useEffect(() => {
     loadNotes();
-    const onCreateListener = onCreateSubscription();
-    const onUpdateListener = onUpdateSubscription();
-    const onDeleteListener = onDeleteSubscription();
+    onCreateSubscription();
+    onUpdateSubscription();
+    onDeleteSubscription();
     return () => {
       onCreateListener.unsubscribe();
       onUpdateListener.unsubscribe();
       onDeleteListener.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onCreateSubscription = () => {
-    return API.graphql(graphqlOperation(onCreateNote)).subscribe({
+  const onCreateSubscription = async () => {
+    const owner = await Auth.currentAuthenticatedUser();
+    onCreateListener = API.graphql(
+      graphqlOperation(onCreateNote, {
+        owner: owner.username,
+      })
+    ).subscribe({
       next: (noteData) => {
         saveNotes(noteData.value.data.onCreateNote);
       },
     });
   };
 
-  const onUpdateSubscription = () => {
-    return API.graphql(graphqlOperation(onUpdateNote)).subscribe({
+  const onUpdateSubscription = async () => {
+    const owner = await Auth.currentAuthenticatedUser();
+    onUpdateListener = API.graphql(
+      graphqlOperation(onUpdateNote, {
+        owner: owner.username,
+      })
+    ).subscribe({
       next: (noteData) => {
         updateNotes(noteData.value.data.onUpdateNote);
       },
     });
   };
 
-  const onDeleteSubscription = () => {
-    return API.graphql(graphqlOperation(onDeleteNote)).subscribe({
+  const onDeleteSubscription = async () => {
+    const owner = await Auth.currentAuthenticatedUser();
+    onDeleteListener = API.graphql(
+      graphqlOperation(onDeleteNote, {
+        owner: owner.username,
+      })
+    ).subscribe({
       next: (noteData) => {
         deleteNotes(noteData.value.data.onDeleteNote);
       },
@@ -61,6 +78,7 @@ const App = () => {
 
   const saveNotes = (note) => {
     // Using prevState allow us to get the last reliable previous state
+
     setNotes((prevNotes) => {
       const updatedNotes = [note, ...prevNotes];
       return updatedNotes;
